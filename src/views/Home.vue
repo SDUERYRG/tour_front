@@ -1,6 +1,19 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import Carousel from '../components/Carousel.vue'
+
+const router = useRouter()
+
+const goToDetail = (item: any) => {
+  if (activeTab.value === 'food') {
+    router.push({ name: 'FoodDetail', params: { id: item.name } })
+  } else if (activeTab.value === 'hotel') {
+    router.push({ name: 'HotelDetail', params: { id: item.name } })
+  } else if (activeTab.value === 'guide') {
+    router.push({ name: 'GuideDetail', params: { id: item.name } })
+  }
+}
 import img1 from '../assets/images/yellow_1.png'
 import img2 from '../assets/images/yellow_2.png'
 import img3 from '../assets/images/yellow_3.png'
@@ -154,7 +167,7 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
                     <span class="card-tag">{{ item.tag }}</span>
                   </div>
                   <p class="card-desc">{{ item.desc }}</p>
-                  <div class="card-action">查看详情 ›</div>
+                  <div class="card-action" @click="goToDetail(item)">查看详情 ›</div>
                 </div>
               </div>
             </div>

@@ -1,5 +1,12 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import userAvatar from '../assets/images/user_avatar.png'
+
+const router = useRouter()
+
+const goToLogin = () => {
+  router.push('/login')
+}
 </script>
 
 <template>
@@ -12,11 +19,11 @@ import userAvatar from '../assets/images/user_avatar.png'
     <!-- User Info Section -->
     <header class="user-header">
       <div class="user-main">
-        <div class="avatar-box">
+        <div class="avatar-box" @click="goToLogin">
           <img :src="userAvatar" alt="Avatar" />
         </div>
         <div class="user-details">
-          <h2 class="user-name">点击登录</h2>
+          <h2 class="user-name" @click="goToLogin">点击登录</h2>
         </div>
       </div>
       <div class="user-side-actions">
@@ -49,7 +56,7 @@ import userAvatar from '../assets/images/user_avatar.png'
       <div class="member-info">
         <span class="member-text">登录查看会员信息</span>
       </div>
-      <button class="member-login-btn">登录</button>
+      <button class="member-login-btn" @click="goToLogin">登录</button>
     </div>
 
     <!-- White Content Container (curved top overflow) -->

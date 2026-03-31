@@ -9,7 +9,7 @@ import TabBar from './components/TabBar.vue'
         <component :is="Component" />
       </transition>
     </router-view>
-    <TabBar />
+    <TabBar v-if="!['FoodDetail', 'HotelDetail', 'GuideDetail'].includes($route.name as string)" />
   </div>
 </template>
 
