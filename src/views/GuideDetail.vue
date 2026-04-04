@@ -3,8 +3,13 @@ import { useRouter, useRoute } from 'vue-router'
 import { ref } from 'vue'
 import guideImgDetail from '../assets/images/guide_1.png' // Using existing guide image as placeholder
 
+import { scenicSpots } from '../data/scenicSpots'
+
 const router = useRouter()
 const route = useRoute()
+
+// Find current spot from shared data
+const currentSpot = scenicSpots.find(s => s.name === route.params.id)
 
 // Mock data for the guide
 const guideDetail = ref({
@@ -12,13 +17,13 @@ const guideDetail = ref({
   author: '度假小助手',
   date: '2026-03-31',
   views: '1.2w',
-  tags: ['热门', '推荐'],
-  image: guideImgDetail,
+  tags: [currentSpot?.tag || '热门', '推荐'],
+  image: currentSpot?.image || guideImgDetail,
   content: [
     {
       type: 'section',
-      title: '行程概览',
-      text: '从游客中心出发，建议乘坐观光巴士前往蓝黄交汇处。沿途可以欣赏到壮观的红滩绿苇，这是大自然最年轻的湿地奇观。'
+      title: '景点概览',
+      text: currentSpot?.description || '从游客中心出发，建议乘坐观光巴士前往蓝黄交汇处。沿途可以欣赏到壮观的红滩绿苇，这是大自然最年轻的湿地奇观。'
     },
     {
       type: 'section',

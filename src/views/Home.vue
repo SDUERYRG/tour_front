@@ -6,33 +6,38 @@ import Carousel from '../components/Carousel.vue'
 const router = useRouter()
 
 const goToDetail = (item: any) => {
-  if (activeTab.value === 'food') {
-    router.push({ name: 'FoodDetail', params: { id: item.name } })
-  } else if (activeTab.value === 'hotel') {
+  if (activeTab.value === 'hotel') {
     router.push({ name: 'HotelDetail', params: { id: item.name } })
-  } else if (activeTab.value === 'guide') {
+  } else if (activeTab.value === 'guide' || activeTab.value === 'spots') {
     router.push({ name: 'GuideDetail', params: { id: item.name } })
   }
 }
 import img1 from '../assets/images/yellow_1.png'
 import img2 from '../assets/images/yellow_2.png'
 import img3 from '../assets/images/yellow_3.png'
-import foodImg from '../assets/images/food_1.png'
 import hotelImg from '../assets/images/hotel_1.png'
 import guideImg from '../assets/images/guide_1.png'
 import shopImg from '../assets/images/shop_1.png'
 
+import { scenicSpots } from '../data/scenicSpots'
+
 const carouselImages = [img1, img2, img3]
 
 // Tab State for Peripheral Section
-type TabKey = 'food' | 'hotel' | 'guide' | 'shop'
-const activeTab = ref<TabKey>('food')
+type TabKey = 'spots' | 'hotel' | 'guide' | 'shop'
+const activeTab = ref<TabKey>('spots')
+
+const goToGuide = (name: string) => {
+  router.push({ name: 'Guide', query: { spot: name } })
+}
 
 const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; img: string; }[]> = {
-  food: [
-    { name: '黄河口鲜味馆', desc: '特色：黄河口刀鱼、大闸蟹', tag: '必吃', img: foodImg },
-    { name: '垦利农家大院', desc: '特色：地锅鸡、野菜包子', tag: '地道', img: foodImg }
-  ],
+  spots: scenicSpots.map(s => ({
+    name: s.name,
+    desc: s.description,
+    tag: s.tag || '景点',
+    img: s.image
+  })),
   hotel: [
     { name: '黄河口大酒店', desc: '距景区3.2km · 五星级标准', tag: '推荐', img: hotelImg },
     { name: '湿地之星民宿', desc: '距景区1.5km · 原生态风情', tag: '近景区', img: hotelImg }
@@ -117,11 +122,11 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
         <div class="peripheral-grid">
           <div 
             class="p-item" 
-            :class="{ active: activeTab === 'food' }" 
-            @click="activeTab = 'food'"
+            :class="{ active: activeTab === 'spots' }" 
+            @click="activeTab = 'spots'"
           >
-            <div class="p-icon-box food">🍲</div>
-            <span class="p-name">美食</span>
+            <div class="p-icon-box spots">🗺️</div>
+            <span class="p-name">景点</span>
           </div>
           <div 
             class="p-item" 
@@ -158,16 +163,21 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
                 :key="index" 
                 class="list-card"
               >
-                <div class="card-img-box">
-                  <img :src="item.img" alt="Item image" />
-                </div>
-                <div class="card-content">
-                  <div class="card-main">
-                    <span class="card-title">{{ item.name }}</span>
-                    <span class="card-tag">{{ item.tag }}</span>
+                <div @click="activeTab === 'spots' ? goToGuide(item.name) : goToDetail(item)" class="card-clickable-area flex gap-3 w-full">
+                  <div class="card-img-box">
+                    <img :src="item.img" alt="Item image" />
                   </div>
-                  <p class="card-desc">{{ item.desc }}</p>
-                  <div class="card-action" @click="goToDetail(item)">查看详情 ›</div>
+                  <div class="card-content">
+                    <div class="card-main">
+                      <span class="card-title">{{ item.name }}</span>
+                      <span class="card-tag">{{ item.tag }}</span>
+                    </div>
+                    <p class="card-desc">{{ item.desc }}</p>
+                    <div class="card-action-row flex justify-between items-center">
+                      <span v-if="activeTab === 'spots'" class="text-[10px] text-blue-500 font-medium">点击前往导航 ›</span>
+                      <div class="card-action" @click.stop="goToDetail(item)">查看详情 ›</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -477,7 +487,7 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 }
 
 /* Theme colors for boxes */
-.p-icon-box.food { background: linear-gradient(135deg, #fff 0%, #fff5f5 100%); }
+.p-icon-box.spots { background: linear-gradient(135deg, #fff 0%, #fff5f5 100%); }
 .p-icon-box.hotel { background: linear-gradient(135deg, #fff 0%, #f0f7ff 100%); }
 .p-icon-box.guide { background: linear-gradient(135deg, #fff 0%, #f5fff5 100%); }
 .p-icon-box.shop { background: linear-gradient(135deg, #fff 0%, #f7f3ff 100%); }

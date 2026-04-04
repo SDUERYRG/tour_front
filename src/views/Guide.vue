@@ -1,20 +1,31 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { scenicSpots as sharedSpots } from '../data/scenicSpots'
 
 // Declaring BMap for TypeScript to avoid "Cannot find name 'BMap'"
 declare const BMap: any;
 declare const window: any;
 
+const route = useRoute()
 const map = ref<any>(null)
 const mapContainer = ref<HTMLElement | null>(null)
 
 // Scenic spots data for this tourism app
-const scenicSpots = [
-    { name: '黄河入海口', position: { lng: 119.167389, lat: 37.766324 }, description: '黄河在此奔流汇入渤海' },
-    { name: '湿地公园', position: { lng: 119.155462, lat: 37.755234 }, description: '观赏珍稀鸟类和原始湿地' },
-    { name: '红地毯景观', position: { lng: 119.180231, lat: 37.770125 }, description: '独特的翅碱蓬形成红色海洋' },
-    { name: '远望楼', position: { lng: 119.165213, lat: 37.760123 }, description: '登高远眺，尽览豪情' }
-];
+const scenicSpots = ref<any[]>(sharedSpots);
+
+const checkQueryParam = () => {
+    const spotName = route.query.spot as string;
+    if (spotName && map.value) {
+        const spot = scenicSpots.value.find(s => s.name === spotName);
+        if (spot) {
+            // Small delay to ensure markers are ready
+            setTimeout(() => {
+                panToSpot(spot);
+            }, 500);
+        }
+    }
+}
 
 const initMap = () => {
     if (!mapContainer.value) return
@@ -30,19 +41,43 @@ const initMap = () => {
         return;
     }
 
-    // Initialize map with user's implementation pattern
+    // Initialize map in standard mode
+    const BMAP_NORMAL_MAP = (window as any).BMAP_NORMAL_MAP;
     map.value = new BMapInstance.Map(mapContainer.value, {
+        mapType: BMAP_NORMAL_MAP,
+        minZoom: 10,
+        maxZoom: 19,
         enableMapClick: false
     })
 
     map.value.enableScrollWheelZoom(true)
 
-    // Using a center point that encompasses our spots or the user's suggested center
-    const centerPoint = new BMapInstance.Point(119.167389, 37.766324)
+    // Set center and zoom as defined in map_v3.html (initially decreased by 3 steps)
+    const centerPoint = new BMapInstance.Point(119.138603157122, 37.7492061024646)
     map.value.centerAndZoom(centerPoint, 13)
 
+    // Add Custom Tile Layer
+    const tileLayer = new BMapInstance.TileLayer();
+    tileLayer.getTilesUrl = function (tileCoord: any, zoom: number) {
+        const x = tileCoord.x;
+        const y = tileCoord.y;
+        return `/tiles/${zoom}/${x}_${y}.png`;
+    }
+    map.value.addTileLayer(tileLayer);
+
+    // Add coverage area rectangle as in map_v3.html
+    const path = [
+        new BMapInstance.Point(118.972452569996, 37.8495683716678),
+        new BMapInstance.Point(119.304753744247, 37.8495683716678),
+        new BMapInstance.Point(119.304753744247, 37.6488438332614),
+        new BMapInstance.Point(118.972452569996, 37.6488438332614),
+        new BMapInstance.Point(118.972452569996, 37.8495683716678)
+    ];
+    const polyline = new BMapInstance.Polyline(path, { strokeColor: "blue", strokeWeight: 2, strokeOpacity: 0.5 });
+    map.value.addOverlay(polyline);
+
     // Add markers for all scenic spots
-    scenicSpots.forEach(spot => {
+    scenicSpots.value.forEach(spot => {
         const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
         const marker = new BMapInstance.Marker(point);
         map.value.addOverlay(marker);
@@ -53,7 +88,6 @@ const initMap = () => {
         label.setStyle({
             color: "#333",
             fontSize: "12px",
-            height: "20px",
             lineHeight: "20px",
             fontFamily: "微软雅黑",
             border: "1px solid #ccc",
@@ -66,7 +100,6 @@ const initMap = () => {
         // Add info window
         const infoWindow = new BMapInstance.InfoWindow(spot.description, {
             width: 200,
-            height: 60,
             title: spot.name
         });
         marker.addEventListener('click', () => {
@@ -80,10 +113,9 @@ const panToSpot = (spot: any) => {
     if (map.value && BMapInstance) {
         const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
         map.value.panTo(point);
-        // Optionally open info window
+        map.value.setZoom(13); // Use default zoom instead of focusing in
         const infoWindow = new BMapInstance.InfoWindow(spot.description, {
             width: 200,
-            height: 60,
             title: spot.name
         });
         map.value.openInfoWindow(infoWindow, point);
@@ -101,7 +133,12 @@ onMounted(() => {
     // Small delay to ensure container is ready and script is loaded
     setTimeout(() => {
         initMap()
+        checkQueryParam()
     }, 100)
+})
+
+watch(() => route.query.spot, () => {
+    checkQueryParam()
 })
 
 onUnmounted(() => {
@@ -114,10 +151,10 @@ onUnmounted(() => {
         <!-- Map Container -->
         <div ref="mapContainer" class="w-full h-full"></div>
 
-        <!-- Premium UI Overlay -->
-        <div class="absolute bottom-10 left-4 right-4 z-[1000] pointer-events-none sm:top-6 sm:left-6 sm:bottom-auto sm:right-auto sm:px-0 sm:w-72 sm:mx-0 max-w-lg mx-auto">
+        <!-- Premium UI Overlay (Visible only when spots are present) -->
+        <div v-if="scenicSpots.length > 0" class="absolute bottom-10 left-4 right-4 z-[1000] pointer-events-none sm:top-6 sm:left-6 sm:bottom-auto sm:right-auto sm:px-0 sm:w-72 sm:mx-0 max-w-lg mx-auto">
             <div
-                class="bg-white/95 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/30 pointer-events-auto">
+                class="bg-white/70 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/30 pointer-events-auto">
                 <div class="flex items-center justify-between mb-3 px-1">
                     <div>
                         <h1 class="text-base font-extrabold text-gray-900 sm:text-lg">导航导览</h1>
@@ -150,6 +187,7 @@ onUnmounted(() => {
     </div>
 </template>
 
+
 <style scoped>
 /* Ensure the page takes full height minus TabBar */
 .h-screen {
@@ -157,70 +195,10 @@ onUnmounted(() => {
     height: calc(100vh - 64px - env(safe-area-inset-bottom));
 }
 
-/* Tailwind-like utilities if they aren't globally available */
-.w-full {
-    width: 100%;
-}
-
-.h-full {
-    height: 100%;
-}
-
-.relative {
-    position: relative;
-}
-
-.absolute {
-    position: absolute;
-}
-
-.overflow-hidden {
-    overflow: hidden;
-}
-
-.top-6 {
-    top: 1.5rem;
-}
-
-.left-6 {
-    left: 1.5rem;
-}
-
-.z-10 {
-    z-index: 10;
-}
-
-.w-72 {
-    width: 18rem;
-}
-
-.bg-white\/80 {
-    background-color: rgba(255, 255, 255, 0.8);
-}
-
-.backdrop-blur-md {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-}
-
-.rounded-2xl {
-    border-radius: 1rem;
-}
-
-.p-5 {
-    padding: 1.25rem;
-}
-
-.shadow-xl {
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-.border {
-    border-width: 1px;
-}
-
-.border-white\/20 {
-    border-color: rgba(255, 255, 255, 0.2);
+/* Tailwind-like utilities are now handled by Tailwind CSS v4 */
+.text-xl {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
 }
 
 .text-xl {
