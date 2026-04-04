@@ -1,16 +1,50 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { showToast } from '../utils/toast'
 
 const router = useRouter()
-const email = ref('')
+const account = ref('')
 const password = ref('')
 
-const handleLogin = () => {
-  console.log('Logging in with:', email.value, password.value)
-  // Implement login logic here
-  alert('登录成功 (模拟)')
-  router.push('/profile')
+const handleLogin = async () => {
+  if (!account.value || !password.value) return
+
+  try {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        account: account.value,
+        password: password.value
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.code === 200) {
+      showToast(data.message || '登录成功', 'success')
+      
+      // Save user data to localStorage
+      localStorage.setItem('token', data.data.token)
+      localStorage.setItem('userId', data.data.id.toString())
+      localStorage.setItem('username', data.data.username)
+      localStorage.setItem('email', data.data.email)
+      
+      // Redirect after success
+      setTimeout(() => {
+        router.push('/profile')
+      }, 1000)
+    } else {
+      showToast(data.message || '登录失败', 'error')
+    }
+  } catch (error) {
+    console.error('Login error:', error)
+    showToast('网络错误，请稍后重试', 'error')
+  }
 }
 
 const navigateToRegister = () => {
@@ -40,14 +74,14 @@ const goBack = () => {
       <div class="login-form-container">
         <div class="login-form">
           <div class="input-group">
-            <label for="email" class="input-label">邮箱地址</label>
+            <label for="account" class="input-label">账号/邮箱</label>
             <div class="input-wrapper">
-              <span class="input-icon">✉️</span>
+              <span class="input-icon">👤</span>
               <input 
-                type="email" 
-                id="email" 
-                v-model="email" 
-                placeholder="请输入您的邮箱"
+                type="text" 
+                id="account" 
+                v-model="account" 
+                placeholder="请输入用户名或邮箱"
                 class="form-input"
               />
             </div>
@@ -71,7 +105,7 @@ const goBack = () => {
             <span>忘记密码？</span>
           </div>
 
-          <button class="login-btn" @click="handleLogin" :disabled="!email || !password">
+          <button class="login-btn" @click="handleLogin" :disabled="!account || !password">
             立即登录
           </button>
 

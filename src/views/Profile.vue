@@ -1,11 +1,37 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import userAvatar from '../assets/images/user_avatar.png'
+import { showToast } from '../utils/toast'
 
 const router = useRouter()
+const username = ref<string | null>(null)
+
+onMounted(() => {
+  // Check if user is logged in
+  const storedName = localStorage.getItem('username')
+  if (storedName) {
+    username.value = storedName
+  }
+})
 
 const goToLogin = () => {
-  router.push('/login')
+  if (!username.value) {
+    router.push('/login')
+  }
+}
+
+const handleLogout = () => {
+  if (!username.value) return
+  
+  // Clear user data
+  localStorage.removeItem('token')
+  localStorage.setItem('userId', '')
+  localStorage.removeItem('username')
+  localStorage.removeItem('email')
+  
+  username.value = null
+  showToast('已退出登录', 'info')
 }
 </script>
 
@@ -23,11 +49,13 @@ const goToLogin = () => {
           <img :src="userAvatar" alt="Avatar" />
         </div>
         <div class="user-details">
-          <h2 class="user-name" @click="goToLogin">点击登录</h2>
+          <h2 class="user-name" @click="goToLogin">
+            {{ username || '点击登录' }}
+          </h2>
         </div>
       </div>
-      <div class="user-side-actions">
-        <span class="logout-link">📤</span>
+      <div class="user-side-actions" v-if="username">
+        <span class="logout-link" @click="handleLogout" title="退出登录">📤</span>
       </div>
     </header>
 

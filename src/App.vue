@@ -1,9 +1,26 @@
 <script setup lang="ts">
 import TabBar from './components/TabBar.vue'
+import Toast from './components/Toast.vue'
+import { toasts } from './utils/toast'
+
+const removeToast = (id: number) => {
+  const index = toasts.findIndex(t => t.id === id)
+  if (index > -1) toasts.splice(index, 1)
+}
 </script>
 
 <template>
   <div class="app-container">
+    <!-- Toast Layer -->
+    <Toast 
+      v-for="toast in toasts" 
+      :key="toast.id"
+      :message="toast.message"
+      :type="toast.type"
+      :duration="toast.duration"
+      @close="removeToast(toast.id)"
+    />
+
     <router-view v-slot="{ Component }">
       <transition name="fade" mode="out-in">
         <component :is="Component" />
