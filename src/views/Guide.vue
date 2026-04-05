@@ -1,18 +1,111 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { scenicSpots as sharedSpots } from '../data/scenicSpots'
+import { useRoute, useRouter } from 'vue-router'
+// import { scenicSpots as sharedSpots } from '../data/scenicSpots'
 
 // Declaring BMap for TypeScript to avoid "Cannot find name 'BMap'"
 declare const BMap: any;
 declare const window: any;
 
 const route = useRoute()
+const router = useRouter()
 const map = ref<any>(null)
 const mapContainer = ref<HTMLElement | null>(null)
 
 // Scenic spots data for this tourism app
-const scenicSpots = ref<any[]>(sharedSpots);
+const scenicSpots = ref<any[]>([]);
+
+const fetchSpots = async () => {
+    try {
+        const token = localStorage.getItem('token')
+        const response = await fetch('/api/scenic-spots/range?startId=1&endId=13', {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            }
+        })
+        const result = await response.json()
+        if (result.code === 200 && Array.isArray(result.data)) {
+            scenicSpots.value = result.data.map((item: any) => {
+                let description = item.description
+                try {
+                    const descJson = JSON.parse(item.description)
+                    description = descJson.overview || item.description
+                } catch (e) {
+                    // Fallback
+                }
+                return {
+                    name: item.name,
+                    position: { lng: item.longitude, lat: item.latitude },
+                    description: description,
+                    tag: item.tag,
+                    image: item.imageUrl
+                }
+            })
+            
+            if (map.value) {
+                addMarkers()
+            }
+            checkQueryParam()
+        }
+    } catch (error) {
+        console.error('Failed to fetch spots:', error)
+    }
+}
+
+const addMarkers = () => {
+    const BMapInstance = (window as any).BMap;
+    if (!map.value || !BMapInstance) return;
+
+    scenicSpots.value.forEach(spot => {
+        const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
+        const marker = new BMapInstance.Marker(point);
+        map.value.addOverlay(marker);
+
+        const label = new BMapInstance.Label(spot.name, {
+            offset: new BMapInstance.Size(20, -10)
+        });
+        label.setStyle({
+            color: "#333",
+            fontSize: "12px",
+            lineHeight: "20px",
+            fontFamily: "微软雅黑",
+            border: "1px solid #ccc",
+            borderRadius: "4px",
+            padding: "0 5px",
+            backgroundColor: "rgba(255,255,255,0.9)"
+        });
+        marker.setLabel(label);
+
+        // Add info window
+        const infoWindowHtml = `
+            <div class="iw-container">
+                <div class="iw-img-box">
+                    <img src="${spot.image}" alt="${spot.name}" />
+                </div>
+                <div class="iw-body">
+                    <h4 class="iw-title">${spot.name}</h4>
+                    <p class="iw-text">${spot.description}</p>
+                    <div class="iw-btn-wrapper">
+                        <button class="iw-btn" onclick="window.goToSpotDetail('${spot.name}')">
+                            查看详情
+                            <span class="iw-btn-icon">›</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const infoWindow = new BMapInstance.InfoWindow(infoWindowHtml, {
+            width: 210, // Match the .iw-container width
+            height: 0,
+            title: '' // Use custom title in HTML
+        });
+        marker.addEventListener('click', () => {
+            map.value.openInfoWindow(infoWindow, point);
+        });
+    });
+}
 
 const checkQueryParam = () => {
     const spotName = route.query.spot as string;
@@ -76,36 +169,9 @@ const initMap = () => {
     const polyline = new BMapInstance.Polyline(path, { strokeColor: "blue", strokeWeight: 2, strokeOpacity: 0.5 });
     map.value.addOverlay(polyline);
 
-    // Add markers for all scenic spots
-    scenicSpots.value.forEach(spot => {
-        const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
-        const marker = new BMapInstance.Marker(point);
-        map.value.addOverlay(marker);
-
-        const label = new BMapInstance.Label(spot.name, {
-            offset: new BMapInstance.Size(20, -10)
-        });
-        label.setStyle({
-            color: "#333",
-            fontSize: "12px",
-            lineHeight: "20px",
-            fontFamily: "微软雅黑",
-            border: "1px solid #ccc",
-            borderRadius: "4px",
-            padding: "0 5px",
-            backgroundColor: "rgba(255,255,255,0.9)"
-        });
-        marker.setLabel(label);
-
-        // Add info window
-        const infoWindow = new BMapInstance.InfoWindow(spot.description, {
-            width: 200,
-            title: spot.name
-        });
-        marker.addEventListener('click', () => {
-            map.value.openInfoWindow(infoWindow, point);
-        });
-    });
+    if (scenicSpots.value.length > 0) {
+        addMarkers();
+    }
 }
 
 const panToSpot = (spot: any) => {
@@ -114,9 +180,27 @@ const panToSpot = (spot: any) => {
         const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
         map.value.panTo(point);
         map.value.setZoom(13); // Use default zoom instead of focusing in
-        const infoWindow = new BMapInstance.InfoWindow(spot.description, {
-            width: 200,
-            title: spot.name
+        const infoWindowHtml = `
+            <div class="iw-container">
+                <div class="iw-img-box">
+                    <img src="${spot.image}" alt="${spot.name}" />
+                </div>
+                <div class="iw-body">
+                    <h4 class="iw-title">${spot.name}</h4>
+                    <p class="iw-text">${spot.description}</p>
+                    <div class="iw-btn-wrapper">
+                        <button class="iw-btn" onclick="window.goToSpotDetail('${spot.name}')">
+                            查看详情
+                            <span class="iw-btn-icon">›</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        const infoWindow = new BMapInstance.InfoWindow(infoWindowHtml, {
+            width: 210, // Match the .iw-container width
+            height: 0,
+            title: ''
         });
         map.value.openInfoWindow(infoWindow, point);
     }
@@ -130,10 +214,15 @@ const clearMap = () => {
 }
 
 onMounted(() => {
+    // Expose routing function to window for InfoWindow HTML buttons
+    (window as any).goToSpotDetail = (spotName: string) => {
+        router.push({ name: 'GuideDetail', params: { id: spotName } });
+    };
+
     // Small delay to ensure container is ready and script is loaded
-    setTimeout(() => {
+    setTimeout(async () => {
         initMap()
-        checkQueryParam()
+        await fetchSpots()
     }, 100)
 })
 
@@ -143,6 +232,8 @@ watch(() => route.query.spot, () => {
 
 onUnmounted(() => {
     clearMap()
+    // Cleanup window-level routing function
+    delete (window as any).goToSpotDetail;
 })
 </script>
 
@@ -330,12 +421,6 @@ onUnmounted(() => {
     width: 1rem;
 }
 
-/* Custom styles for the BMap labels to make them look modern */
-:deep(.BMap_Label) {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    transform: translateX(-50%);
-}
-
 /* Hide scrollbar but allow scrolling */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -477,5 +562,166 @@ onUnmounted(() => {
 
 @media (max-width: 639px) {
     .hidden { display: none; }
+}
+
+/* Custom styles for the BMap labels to make them look modern */
+:deep(.BMap_Label) {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transform: translateX(-50%);
+}
+
+:deep(.iw-container) {
+    width: 210px;
+    background: #fff;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding-bottom: 2px;
+}
+
+:deep(.iw-img-box) {
+    width: 100%;
+    height: 110px;
+    overflow: hidden;
+}
+
+:deep(.iw-img-box img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+:deep(.iw-body) {
+    padding: 12px;
+}
+
+:deep(.iw-title) {
+    font-size: 15px;
+    font-weight: 800;
+    color: #333;
+    margin: 0 0 6px 0;
+}
+
+:deep(.iw-text) {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.5;
+    margin: 0 0 12px 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+:deep(.iw-btn-wrapper) {
+    display: flex;
+    justify-content: flex-end;
+}
+
+:deep(.iw-btn) {
+    background: linear-gradient(135deg, #6e8efb 0%, #a777e3 100%);
+    color: #fff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 4px 10px rgba(110, 142, 251, 0.25);
+    transition: transform 0.2s ease;
+}
+
+:deep(.iw-btn:active) {
+    transform: scale(0.95);
+}
+
+:deep(.iw-btn-icon) {
+    font-size: 12px;
+}
+
+/* Ensure the InfoWindow itself doesn't have restrictive borders */
+:deep(.BMap_bubble_title) {
+    display: none !important;
+}
+
+/* Hide the default BMap close button background if needed or style it */
+:deep(.BMap_pop img) {
+    z-index: 1001;
+}
+</style>
+
+<!-- Global CSS for Baidu Maps Overrides - Clean Unified Card Only -->
+<style>
+.BMap_pop {
+    background: transparent !important;
+}
+
+/* Hide ALL default bubble parts (slices and beak) */
+.BMap_pop > div {
+    display: none !important;
+}
+
+/* Show ONLY the content container (verified as 9th child) */
+.BMap_pop > div:nth-child(9) {
+    display: block !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}
+
+/* Specifically ensure the arrow/beak identified as 11th child is hidden */
+.BMap_pop > div:nth-child(11),
+.BMap_pop div[style*="width: 34px"][style*="height: 50px"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+.BMap_pop > div > div {
+    background: transparent !important;
+    background-image: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.BMap_bubble_content {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}
+
+.BMap_bubble_center {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+.BMap_bubble_top,
+.BMap_bubble_bottom {
+    background: transparent !important;
+}
+
+/* Hide shadow and other default UI elements */
+.BMap_shadow,
+.BMap_bubble_title,
+.BMap_bubble_buttons,
+.BMap_pop img[style*="top: 10px"] { /* Attempt to hide default close button */
+    display: none !important;
+}
+
+/* Target the wrapper that usually adds the white background */
+.BMap_bubble_pop {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 </style>

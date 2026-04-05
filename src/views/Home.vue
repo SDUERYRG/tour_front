@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Carousel from '../components/Carousel.vue'
 
@@ -31,7 +31,8 @@ const goToGuide = (name: string) => {
   router.push({ name: 'Guide', query: { spot: name } })
 }
 
-const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; img: string; }[]> = {
+// Reactive state for Peripheral Section
+const peripheralData = ref<Record<TabKey, { name: string; desc: string; tag: string; img: string; }[]>>({
   spots: scenicSpots.map(s => ({
     name: s.name,
     desc: s.description,
@@ -50,7 +51,45 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
     { name: '黄河口咸鸭蛋', desc: '当地特产 · 咸香流油', tag: '特产', img: shopImg },
     { name: '大闸蟹礼盒', desc: '鲜活直供 · 馈赠佳品', tag: '热销', img: shopImg }
   ]
+})
+
+const fetchSpots = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch('/api/scenic-spots/range?startId=1&endId=13', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    const result = await response.json()
+    if (result.code === 200 && Array.isArray(result.data)) {
+      peripheralData.value.spots = result.data.map((item: any) => {
+        let overview = item.name
+        try {
+          // Parse description JSON and extract overview
+          const descJson = JSON.parse(item.description)
+          overview = descJson.overview || item.name
+        } catch (e) {
+          overview = item.description // Fallback to raw string
+        }
+
+        return {
+          name: item.name,
+          desc: overview,
+          tag: item.tag || '景点',
+          img: item.imageUrl
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Failed to fetch spots:', error)
+  }
 }
+
+onMounted(() => {
+  fetchSpots()
+})
 </script>
 
 <template>
@@ -58,7 +97,7 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
     <!-- Carousel at the top -->
     <header class="home-header">
       <Carousel :images="carouselImages" :interval="4000" />
-      
+
       <!-- Text overlay - positioned relative to the header -->
       <div class="overlay-container">
         <h1 class="title">黄河口生态旅游区</h1>
@@ -81,7 +120,7 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
           </div>
           <p class="info-value">08:30 - 17:00 (全年开放)</p>
         </div>
-        
+
         <div class="info-item">
           <div class="info-label">
             <span class="icon">📝</span>
@@ -118,37 +157,21 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 
       <!-- New Peripheral Section -->
       <section class="peripheral-section">
-        <div class="section-title">周边配套</div>
+        <div class="section-title">景区速览</div>
         <div class="peripheral-grid">
-          <div 
-            class="p-item" 
-            :class="{ active: activeTab === 'spots' }" 
-            @click="activeTab = 'spots'"
-          >
+          <div class="p-item" :class="{ active: activeTab === 'spots' }" @click="activeTab = 'spots'">
             <div class="p-icon-box spots">🗺️</div>
             <span class="p-name">景点</span>
           </div>
-          <div 
-            class="p-item" 
-            :class="{ active: activeTab === 'hotel' }" 
-            @click="activeTab = 'hotel'"
-          >
+          <div class="p-item" :class="{ active: activeTab === 'hotel' }" @click="activeTab = 'hotel'">
             <div class="p-icon-box hotel">🏨</div>
             <span class="p-name">酒店</span>
           </div>
-          <div 
-            class="p-item" 
-            :class="{ active: activeTab === 'guide' }" 
-            @click="activeTab = 'guide'"
-          >
+          <div class="p-item" :class="{ active: activeTab === 'guide' }" @click="activeTab = 'guide'">
             <div class="p-icon-box guide">📖</div>
             <span class="p-name">攻略</span>
           </div>
-          <div 
-            class="p-item" 
-            :class="{ active: activeTab === 'shop' }" 
-            @click="activeTab = 'shop'"
-          >
+          <div class="p-item" :class="{ active: activeTab === 'shop' }" @click="activeTab = 'shop'">
             <div class="p-icon-box shop">🛍️</div>
             <span class="p-name">商品</span>
           </div>
@@ -158,12 +181,9 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
         <div class="tab-panel">
           <transition name="list-fade" mode="out-in">
             <div :key="activeTab" class="content-list">
-              <div 
-                v-for="(item, index) in peripheralData[activeTab]" 
-                :key="index" 
-                class="list-card"
-              >
-                <div @click="activeTab === 'spots' ? goToGuide(item.name) : goToDetail(item)" class="card-clickable-area flex gap-3 w-full">
+              <div v-for="(item, index) in peripheralData[activeTab]" :key="index" class="list-card">
+                <div @click="activeTab === 'spots' ? goToGuide(item.name) : goToDetail(item)"
+                  class="card-clickable-area flex gap-3 w-full">
                   <div class="card-img-box">
                     <img :src="item.img" alt="Item image" />
                   </div>
@@ -192,7 +212,8 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 .home-page {
   min-height: 100vh;
   background-color: #f6f8fb;
-  padding-bottom: 90px; /* Space for TabBar if exists */
+  padding-bottom: 90px;
+  /* Space for TabBar if exists */
 }
 
 .home-header {
@@ -202,7 +223,8 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 
 .overlay-container {
   position: absolute;
-  bottom: 20%; /* Adjusted to 20% from bottom as requested */
+  bottom: 20%;
+  /* Adjusted to 20% from bottom as requested */
   left: 16px;
   text-align: left;
   width: auto;
@@ -249,8 +271,10 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 }
 
 .home-content {
-  padding: 20px 16px; /* Adjusted padding for better card fit */
-  margin-top: -36px; /* Increased overlay effect */
+  padding: 20px 16px;
+  /* Adjusted padding for better card fit */
+  margin-top: -36px;
+  /* Increased overlay effect */
   position: relative;
   z-index: 5;
 }
@@ -259,7 +283,8 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
   background: white;
   border-radius: 20px;
   padding: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); /* Soft premium shadow */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  /* Soft premium shadow */
   margin-bottom: 24px;
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
@@ -318,20 +343,23 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 .feature-grid {
   display: flex;
   justify-content: space-between;
-  gap: 8px; /* Reduced from 12px */
+  gap: 8px;
+  /* Reduced from 12px */
 }
 
 .feature-card {
   flex: 1;
   background: #fff;
   border-radius: 16px;
-  padding: 12px 6px; /* Reduced from 16x8 */
+  padding: 12px 6px;
+  /* Reduced from 16x8 */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
-  min-width: 0; /* Important to prevent overflow on very small columns */
+  min-width: 0;
+  /* Important to prevent overflow on very small columns */
 }
 
 .f-icon {
@@ -487,10 +515,21 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
 }
 
 /* Theme colors for boxes */
-.p-icon-box.spots { background: linear-gradient(135deg, #fff 0%, #fff5f5 100%); }
-.p-icon-box.hotel { background: linear-gradient(135deg, #fff 0%, #f0f7ff 100%); }
-.p-icon-box.guide { background: linear-gradient(135deg, #fff 0%, #f5fff5 100%); }
-.p-icon-box.shop { background: linear-gradient(135deg, #fff 0%, #f7f3ff 100%); }
+.p-icon-box.spots {
+  background: linear-gradient(135deg, #fff 0%, #fff5f5 100%);
+}
+
+.p-icon-box.hotel {
+  background: linear-gradient(135deg, #fff 0%, #f0f7ff 100%);
+}
+
+.p-icon-box.guide {
+  background: linear-gradient(135deg, #fff 0%, #f5fff5 100%);
+}
+
+.p-icon-box.shop {
+  background: linear-gradient(135deg, #fff 0%, #f7f3ff 100%);
+}
 
 /* Animations */
 .overlay-container .title {
@@ -502,6 +541,7 @@ const peripheralData: Record<TabKey, { name: string; desc: string; tag: string; 
     opacity: 0;
     transform: translateX(-20px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
