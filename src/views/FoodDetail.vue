@@ -6,6 +6,14 @@ import foodImgDetail from '../assets/images/food_1.png' // Using existing food i
 const router = useRouter()
 const route = useRoute()
 
+const handleShare = () => {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    showToast('链接已复制到剪贴板', 'success')
+  }).catch(() => {
+    showToast('复制失败，请手动复制', 'error')
+  })
+}
+
 // Mock data based on the screenshot
 const foodDetail = ref({
   name: route.params.id || '张大师吮指鸭爪爪(东城万达广场店)',
@@ -78,22 +86,9 @@ const goBack = () => {
       </section>
     </main>
 
-    <!-- Footer Action Bar -->
     <footer class="detail-footer">
-      <div class="comment-input-box">
-        <span class="edit-icon">✏️</span>
-        <span class="placeholder-text">写评论</span>
-      </div>
-      <div class="footer-actions">
-        <div class="footer-item">
-          <span class="icon">🤍</span>
-          <span class="label">{{ foodDetail.likes }}</span>
-        </div>
-        <div class="footer-item">
-          <span class="icon">💬</span>
-          <span class="label">评论</span>
-        </div>
-        <div class="footer-item">
+      <div class="footer-actions" style="flex: 1; justify-content: center;">
+        <div class="footer-item" @click="handleShare">
           <span class="icon">↗️</span>
           <span class="label">分享</span>
         </div>

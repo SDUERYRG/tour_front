@@ -2,7 +2,7 @@
 const tabs = [
   { name: '首页', path: '/', icon: '🏠' },
   { name: '导航', path: '/guide', icon: '📍' },
-  { name: '商城', path: '/shop', icon: '🛒' },
+//  { name: '商城', path: '/shop', icon: '🛒' },
   { name: '我的', path: '/profile', icon: '👤' },
 ]
 </script>

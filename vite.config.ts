@@ -19,7 +19,7 @@ export default defineConfig({
       }
     },
     watch: {
-      ignored: ['**/public/tiles/**']
+      ignored: ['**/public/original2_Gaode/tiles/**']
     }
   }
 })

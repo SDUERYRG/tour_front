@@ -51,6 +51,10 @@ const navigateToRegister = () => {
   router.push('/register')
 }
 
+const navigateToForgotPassword = () => {
+  router.push('/forgot-password')
+}
+
 const goBack = () => {
   router.push('/profile')
 }
@@ -102,7 +106,7 @@ const goBack = () => {
           </div>
 
           <div class="forgot-password">
-            <span>忘记密码？</span>
+            <span @click="navigateToForgotPassword">忘记密码？</span>
           </div>
 
           <button class="login-btn" @click="handleLogin" :disabled="!account || !password">

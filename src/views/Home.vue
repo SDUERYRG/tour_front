@@ -65,18 +65,9 @@ const fetchSpots = async () => {
     const result = await response.json()
     if (result.code === 200 && Array.isArray(result.data)) {
       peripheralData.value.spots = result.data.map((item: any) => {
-        let overview = item.name
-        try {
-          // Parse description JSON and extract overview
-          const descJson = JSON.parse(item.description)
-          overview = descJson.overview || item.name
-        } catch (e) {
-          overview = item.description // Fallback to raw string
-        }
-
         return {
           name: item.name,
-          desc: overview,
+          desc: item.description, // Use raw description directly
           tag: item.tag || '景点',
           img: item.imageUrl
         }
@@ -122,9 +113,12 @@ onMounted(() => {
         </div>
 
         <div class="info-item">
-          <div class="info-label">
-            <span class="icon">📝</span>
-            <span class="text">景区简介</span>
+          <div class="info-label flex justify-between items-center w-full">
+            <div class="flex items-center gap-2">
+              <span class="icon">📝</span>
+              <span class="text">景区简介</span>
+            </div>
+            <router-link to="/scenic-detail" class="more-link">〉</router-link>
           </div>
           <p class="info-value small">大河入海，蓝黄交汇。这里是鸟类的天堂，红滩苇海，构成中国最完整、最广阔、最年轻的湿地生态系统。</p>
         </div>
@@ -171,10 +165,10 @@ onMounted(() => {
             <div class="p-icon-box guide">📖</div>
             <span class="p-name">攻略</span>
           </div>
-          <div class="p-item" :class="{ active: activeTab === 'shop' }" @click="activeTab = 'shop'">
+<!-- <div class="p-item" :class="{ active: activeTab === 'shop' }" @click="activeTab = 'shop'">
             <div class="p-icon-box shop">🛍️</div>
             <span class="p-name">商品</span>
-          </div>
+          </div> -->
         </div>
 
         <!-- Tab Content Panel -->
@@ -314,6 +308,18 @@ onMounted(() => {
   color: #333;
 }
 
+.more-link {
+  font-size: 14px;
+  color: #999;
+  text-decoration: none;
+  font-weight: normal;
+  transition: color 0.2s;
+}
+
+.more-link:hover {
+  color: #6e8efb;
+}
+
 .info-value {
   font-size: 13px;
   color: #666;
@@ -378,7 +384,7 @@ onMounted(() => {
 
 .peripheral-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -488,6 +494,11 @@ onMounted(() => {
   font-size: 12px;
   color: #999;
   margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-action {

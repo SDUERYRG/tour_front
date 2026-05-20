@@ -12,11 +12,11 @@ const routes = [
     name: 'Guide',
     component: () => import('../views/Guide.vue'),
   },
-  {
+/*  {
     path: '/shop',
     name: 'Shop',
     component: () => import('../views/Shop.vue'),
-  },
+  }, */
   {
     path: '/profile',
     name: 'Profile',
@@ -33,6 +33,11 @@ const routes = [
     component: () => import('../views/GuideDetail.vue'),
   },
   {
+    path: '/scenic-detail',
+    name: 'ScenicDetail',
+    component: () => import('../views/ScenicDetail.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -41,6 +46,21 @@ const routes = [
     path: '/register',
     name: 'Register',
     component: () => import('../views/Register.vue'),
+  },
+  {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('../views/ForgotPassword.vue'),
+  },
+  {
+    path: '/feedback',
+    name: 'Feedback',
+    component: () => import('../views/Feedback.vue'),
+  },
+  {
+    path: '/my-feedback',
+    name: 'MyFeedback',
+    component: () => import('../views/MyFeedback.vue'),
   },
 ]
 

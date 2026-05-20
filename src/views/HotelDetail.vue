@@ -53,7 +53,6 @@ const goBack = () => {
         </div>
         <div class="info-meta-row">
           <span class="meta-text">{{ hotelDetail.info }}</span>
-          <span class="details-link">设施/详情 〉</span>
         </div>
 
         <div class="divider"></div>
@@ -189,11 +188,6 @@ const goBack = () => {
 }
 
 .meta-text {
-  font-size: 13px;
-  color: #666;
-}
-
-.details-link {
   font-size: 13px;
   color: #666;
 }

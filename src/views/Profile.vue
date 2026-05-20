@@ -59,30 +59,10 @@ const handleLogout = () => {
       </div>
     </header>
 
-    <!-- Stats Row -->
-    <section class="stats-row">
-      <div class="stat-card">
-        <span class="stat-value">0</span>
-        <span class="stat-label">关注</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">0</span>
-        <span class="stat-label">粉丝</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">0</span>
-        <span class="stat-label">获赞与收藏</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">0</span>
-        <span class="stat-label">/ 余额 ›</span>
-      </div>
-    </section>
-
     <!-- Membership Card -->
-    <div class="membership-card">
+    <div class="membership-card" v-if="!username">
       <div class="member-info">
-        <span class="member-text">登录查看会员信息</span>
+        <span class="member-text">登录使用更多功能</span>
       </div>
       <button class="member-login-btn" @click="goToLogin">登录</button>
     </div>
@@ -91,7 +71,7 @@ const handleLogout = () => {
     <main class="content-container">
       <!-- Orders Section -->
       <section class="section-box order-grid">
-        <div class="grid-item">
+        <!-- <div class="grid-item">
           <div class="grid-icon shop">📦</div>
           <span class="grid-label">商品订单</span>
         </div>
@@ -106,22 +86,26 @@ const handleLogout = () => {
         <div class="grid-item">
           <div class="grid-icon coupon">🎟️</div>
           <span class="grid-label">我的券包</span>
-        </div>
+        </div> -->
       </section>
 
       <!-- Services Section -->
       <section class="section-box services-section">
         <h3 class="section-title">我的服务</h3>
         <div class="services-grid">
-          <div class="grid-item">
+          <div class="grid-item" @click="router.push('/forgot-password')">
             <div class="service-icon">⚙️</div>
             <span class="grid-label">账号设置</span>
           </div>
-          <div class="grid-item">
+          <div class="grid-item" @click="router.push('/feedback')">
             <div class="service-icon">📁</div>
             <span class="grid-label">投诉反馈</span>
           </div>
-          <div class="grid-item">
+          <div class="grid-item" @click="router.push('/my-feedback')">
+            <div class="service-icon">💬</div>
+            <span class="grid-label">我的反馈</span>
+          </div>
+          <!-- <div class="grid-item">
             <div class="service-icon">🏪</div>
             <span class="grid-label">商家入驻</span>
           </div>
@@ -132,13 +116,8 @@ const handleLogout = () => {
           <div class="grid-item">
             <div class="service-icon">📝</div>
             <span class="grid-label">我的创作</span>
-          </div>
+          </div> -->
         </div>
-      </section>
-
-      <!-- Favorites Section Title -->
-      <section class="section-box favorite-section">
-        <h3 class="section-title">我的收藏</h3>
       </section>
 
       <!-- Decorative Footer Logo -->
@@ -230,33 +209,6 @@ const handleLogout = () => {
 .logout-link {
   font-size: 20px;
   color: #666;
-}
-
-/* Stats Row */
-.stats-row {
-  display: flex;
-  justify-content: space-around;
-  padding: 0 10px;
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: #333;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #888;
 }
 
 /* Membership Card */

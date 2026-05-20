@@ -1,727 +1,623 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-// import { scenicSpots as sharedSpots } from '../data/scenicSpots'
+import { loadAMap, type LngLatTuple } from '../utils/amap'
 
-// Declaring BMap for TypeScript to avoid "Cannot find name 'BMap'"
-declare const BMap: any;
-declare const window: any;
+type MapInstance = {
+  add: (overlays: unknown[] | unknown) => void
+  addControl: (control: unknown) => void
+  clearInfoWindow: () => void
+  destroy: () => void
+  remove: (overlays: unknown[] | unknown) => void
+  setFitView: (overlays?: unknown[] | unknown) => void
+  setZoomAndCenter: (zoom: number, center: LngLatTuple) => void
+}
+
+type TileLayerInstance = {
+  setMap?: (map: unknown) => void
+}
+
+interface ScenicSpot {
+  name: string
+  position: LngLatTuple
+  description: string
+  tag?: string
+  image: string
+}
+
+interface ScenicSpotApiItem {
+  description: string
+  imageUrl: string
+  latitude: number | string
+  longitude: number | string
+  name: string
+  tag?: string
+}
+
+declare global {
+  interface Window {
+    goToSpotDetail?: (spotName: string) => void
+  }
+}
+
+const DEFAULT_CENTER: LngLatTuple = [119.1319005, 37.741347]
+const COVERAGE_PATH: LngLatTuple[] = [
+  [118.962516, 37.846386],
+  [119.301285, 37.846386],
+  [119.301285, 37.636308],
+  [118.962516, 37.636308],
+  [118.962516, 37.846386],
+]
+const TILE_ROOT = 'original2_Gaode/tiles'
+const TILE_ZOOM_RANGE: [number, number] = [10, 19]
+const DEFAULT_ZOOM = 11
 
 const route = useRoute()
 const router = useRouter()
-const map = ref<any>(null)
+
 const mapContainer = ref<HTMLElement | null>(null)
+const scenicSpots = ref<ScenicSpot[]>([])
+const map = ref<MapInstance | null>(null)
 
-// Scenic spots data for this tourism app
-const scenicSpots = ref<any[]>([]);
+let coveragePolyline: { setMap?: (map: unknown) => void } | null = null
+let customTileLayer: TileLayerInstance | null = null
+let infoWindow: {
+  close: () => void
+  open: (map: unknown, position: LngLatTuple) => void
+  setContent: (content: string) => void
+} | null = null
+let markers: unknown[] = []
 
-const fetchSpots = async () => {
-    try {
-        const token = localStorage.getItem('token')
-        const response = await fetch('/api/scenic-spots/range?startId=1&endId=13', {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            }
-        })
-        const result = await response.json()
-        if (result.code === 200 && Array.isArray(result.data)) {
-            scenicSpots.value = result.data.map((item: any) => {
-                let description = item.description
-                try {
-                    const descJson = JSON.parse(item.description)
-                    description = descJson.overview || item.description
-                } catch (e) {
-                    // Fallback
-                }
-                return {
-                    name: item.name,
-                    position: { lng: item.longitude, lat: item.latitude },
-                    description: description,
-                    tag: item.tag,
-                    image: item.imageUrl
-                }
-            })
-            
-            if (map.value) {
-                addMarkers()
-            }
-            checkQueryParam()
-        }
-    } catch (error) {
-        console.error('Failed to fetch spots:', error)
-    }
+const buildTileUrl = (x: number, y: number, z: number) =>
+  new URL(`${TILE_ROOT}/${z}/${x}_${y}.png`, `${window.location.origin}${import.meta.env.BASE_URL}`).toString()
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const buildInfoWindowHtml = (spot: ScenicSpot) => {
+  const safeName = escapeHtml(spot.name)
+  const safeDescription = escapeHtml(spot.description)
+  const safeImage = escapeHtml(spot.image)
+  const encodedName = encodeURIComponent(spot.name)
+
+  return `
+    <div class="guide-info-window">
+      <div class="guide-info-window__image">
+        <img src="${safeImage}" alt="${safeName}" />
+      </div>
+      <div class="guide-info-window__body">
+        <h4 class="guide-info-window__title">${safeName}</h4>
+        <p class="guide-info-window__text">${safeDescription}</p>
+        <button
+          class="guide-info-window__button"
+          onclick="window.goToSpotDetail && window.goToSpotDetail(decodeURIComponent('${encodedName}'))"
+        >
+          查看详情
+          <span class="guide-info-window__button-icon">></span>
+        </button>
+      </div>
+    </div>
+  `
 }
 
-const addMarkers = () => {
-    const BMapInstance = (window as any).BMap;
-    if (!map.value || !BMapInstance) return;
+const buildMarkerHtml = (spot: ScenicSpot) => {
+  const safeName = escapeHtml(spot.name)
 
-    scenicSpots.value.forEach(spot => {
-        const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
-        const marker = new BMapInstance.Marker(point);
-        map.value.addOverlay(marker);
+  return `
+    <div class="guide-marker">
+      <span class="guide-marker__label">${safeName}</span>
+      <span class="guide-marker__pin"></span>
+    </div>
+  `
+}
 
-        const label = new BMapInstance.Label(spot.name, {
-            offset: new BMapInstance.Size(20, -10)
-        });
-        label.setStyle({
-            color: "#333",
-            fontSize: "12px",
-            lineHeight: "20px",
-            fontFamily: "微软雅黑",
-            border: "1px solid #ccc",
-            borderRadius: "4px",
-            padding: "0 5px",
-            backgroundColor: "rgba(255,255,255,0.9)"
-        });
-        marker.setLabel(label);
+const parseDescription = (description: string) => {
+  try {
+    const parsed = JSON.parse(description) as { overview?: string }
+    return parsed.overview || description
+  } catch {
+    return description
+  }
+}
 
-        // Add info window
-        const infoWindowHtml = `
-            <div class="iw-container">
-                <div class="iw-img-box">
-                    <img src="${spot.image}" alt="${spot.name}" />
-                </div>
-                <div class="iw-body">
-                    <h4 class="iw-title">${spot.name}</h4>
-                    <p class="iw-text">${spot.description}</p>
-                    <div class="iw-btn-wrapper">
-                        <button class="iw-btn" onclick="window.goToSpotDetail('${spot.name}')">
-                            查看详情
-                            <span class="iw-btn-icon">›</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
+const clearMarkers = () => {
+  if (map.value && markers.length > 0) {
+    map.value.remove(markers)
+  }
 
-        const infoWindow = new BMapInstance.InfoWindow(infoWindowHtml, {
-            width: 210, // Match the .iw-container width
-            height: 0,
-            title: '' // Use custom title in HTML
-        });
-        marker.addEventListener('click', () => {
-            map.value.openInfoWindow(infoWindow, point);
-        });
-    });
+  markers = []
+}
+
+const openSpotInfoWindow = (spot: ScenicSpot) => {
+  if (!map.value || !infoWindow) {
+    return
+  }
+
+  infoWindow.setContent(buildInfoWindowHtml(spot))
+  infoWindow.open(map.value, spot.position)
+}
+
+const addMarkers = async () => {
+  if (!map.value || scenicSpots.value.length === 0) {
+    return
+  }
+
+  const AMap = await loadAMap()
+  const MarkerCtor = AMap.Marker as new (options: Record<string, unknown>) => {
+    on: (eventName: string, callback: () => void) => void
+  }
+  const PixelCtor = AMap.Pixel as new (x: number, y: number) => unknown
+
+  clearMarkers()
+
+  markers = scenicSpots.value.map((spot) => {
+    const marker = new MarkerCtor({
+      anchor: 'bottom-center',
+      content: buildMarkerHtml(spot),
+      offset: new PixelCtor(0, 12),
+      position: spot.position,
+      title: spot.name,
+    })
+
+    marker.on('click', () => {
+      openSpotInfoWindow(spot)
+    })
+
+    return marker
+  })
+
+  map.value.add(markers)
+}
+
+const focusOnSpots = () => {
+  if (!map.value || markers.length === 0) {
+    return
+  }
+
+  map.value.setFitView(markers)
 }
 
 const checkQueryParam = () => {
-    const spotName = route.query.spot as string;
-    if (spotName && map.value) {
-        const spot = scenicSpots.value.find(s => s.name === spotName);
-        if (spot) {
-            // Small delay to ensure markers are ready
-            setTimeout(() => {
-                panToSpot(spot);
-            }, 500);
-        }
-    }
+  const spotName = route.query.spot as string | undefined
+
+  if (!spotName) {
+    return
+  }
+
+  const spot = scenicSpots.value.find((item) => item.name === spotName)
+  if (!spot) {
+    return
+  }
+
+  window.setTimeout(() => {
+    panToSpot(spot)
+  }, 120)
 }
 
-const initMap = () => {
-    if (!mapContainer.value) return
-
-    // Check if BMap is defined on window
-    const BMapInstance = (window as any).BMap;
-    if (!BMapInstance) {
-        // console.error('Baidu Maps API (BMap) is not defined. Please check your API key and network connection.');
-        // Retry once after 1 second if not loaded
-        setTimeout(() => {
-            if ((window as any).BMap) initMap();
-        }, 1000);
-        return;
-    }
-
-    // Initialize map in standard mode
-    const BMAP_NORMAL_MAP = (window as any).BMAP_NORMAL_MAP;
-    map.value = new BMapInstance.Map(mapContainer.value, {
-        mapType: BMAP_NORMAL_MAP,
-        minZoom: 10,
-        maxZoom: 19,
-        enableMapClick: false
+const fetchSpots = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch('/api/scenic-spots/range?startId=1&endId=20', {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+      },
     })
+    const result = await response.json()
 
-    map.value.enableScrollWheelZoom(true)
-
-    // Set center and zoom as defined in map_v3.html (initially decreased by 3 steps)
-    const centerPoint = new BMapInstance.Point(119.138603157122, 37.7492061024646)
-    map.value.centerAndZoom(centerPoint, 13)
-
-    // Add Custom Tile Layer
-    const tileLayer = new BMapInstance.TileLayer();
-    tileLayer.getTilesUrl = function (tileCoord: any, zoom: number) {
-        const x = tileCoord.x;
-        const y = tileCoord.y;
-        return `/tiles/${zoom}/${x}_${y}.png`;
+    if (result.code !== 200 || !Array.isArray(result.data)) {
+      return
     }
-    map.value.addTileLayer(tileLayer);
 
-    // Add coverage area rectangle as in map_v3.html
-    const path = [
-        new BMapInstance.Point(118.972452569996, 37.8495683716678),
-        new BMapInstance.Point(119.304753744247, 37.8495683716678),
-        new BMapInstance.Point(119.304753744247, 37.6488438332614),
-        new BMapInstance.Point(118.972452569996, 37.6488438332614),
-        new BMapInstance.Point(118.972452569996, 37.8495683716678)
-    ];
-    const polyline = new BMapInstance.Polyline(path, { strokeColor: "blue", strokeWeight: 2, strokeOpacity: 0.5 });
-    map.value.addOverlay(polyline);
+    scenicSpots.value = (result.data as ScenicSpotApiItem[]).map((item) => ({
+      description: parseDescription(item.description),
+      image: item.imageUrl,
+      name: item.name,
+      position: [Number(item.longitude), Number(item.latitude)] as LngLatTuple,
+      tag: item.tag,
+    }))
 
-    if (scenicSpots.value.length > 0) {
-        addMarkers();
+    if (map.value) {
+      await addMarkers()
+      if (!route.query.spot) {
+        focusOnSpots()
+      }
     }
+
+    checkQueryParam()
+  } catch (error) {
+    console.error('Failed to fetch scenic spots:', error)
+  }
 }
 
-const panToSpot = (spot: any) => {
-    const BMapInstance = (window as any).BMap;
-    if (map.value && BMapInstance) {
-        const point = new BMapInstance.Point(spot.position.lng, spot.position.lat);
-        map.value.panTo(point);
-        map.value.setZoom(13); // Use default zoom instead of focusing in
-        const infoWindowHtml = `
-            <div class="iw-container">
-                <div class="iw-img-box">
-                    <img src="${spot.image}" alt="${spot.name}" />
-                </div>
-                <div class="iw-body">
-                    <h4 class="iw-title">${spot.name}</h4>
-                    <p class="iw-text">${spot.description}</p>
-                    <div class="iw-btn-wrapper">
-                        <button class="iw-btn" onclick="window.goToSpotDetail('${spot.name}')">
-                            查看详情
-                            <span class="iw-btn-icon">›</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        const infoWindow = new BMapInstance.InfoWindow(infoWindowHtml, {
-            width: 210, // Match the .iw-container width
-            height: 0,
-            title: ''
-        });
-        map.value.openInfoWindow(infoWindow, point);
-    }
+const initMap = async () => {
+  if (!mapContainer.value || map.value) {
+    return
+  }
+
+  const AMap = await loadAMap()
+  const MapCtor = AMap.Map as new (container: HTMLElement, options: Record<string, unknown>) => MapInstance
+  const TileLayerCtor = AMap.TileLayer as new (options?: Record<string, unknown>) => TileLayerInstance
+  const PolylineCtor = AMap.Polyline as new (options: Record<string, unknown>) => {
+    setMap?: (map: unknown) => void
+  }
+  const InfoWindowCtor = AMap.InfoWindow as new (options: Record<string, unknown>) => {
+    close: () => void
+    open: (map: unknown, position: LngLatTuple) => void
+    setContent: (content: string) => void
+  }
+  const ScaleCtor = AMap.Scale as new () => unknown
+  const ToolBarCtor = AMap.ToolBar as new (options: Record<string, unknown>) => unknown
+  const PixelCtor = AMap.Pixel as new (x: number, y: number) => unknown
+
+  map.value = new MapCtor(mapContainer.value, {
+    center: DEFAULT_CENTER,
+    expandZoomRange: true,
+    layers: [new TileLayerCtor()],
+    resizeEnable: true,
+    viewMode: '2D',
+    zoom: DEFAULT_ZOOM,
+    zooms: TILE_ZOOM_RANGE,
+  })
+
+  map.value.addControl(new ScaleCtor())
+  map.value.addControl(
+    new ToolBarCtor({
+      position: {
+        right: '16px',
+        top: '16px',
+      },
+    }),
+  )
+
+  customTileLayer = new TileLayerCtor({
+    getTileUrl: (x: number, y: number, z: number) => buildTileUrl(x, y, z),
+    zIndex: 120,
+  })
+  customTileLayer.setMap?.(map.value)
+
+  coveragePolyline = new PolylineCtor({
+    path: COVERAGE_PATH,
+    strokeColor: '#2563eb',
+    strokeOpacity: 0.42,
+    strokeWeight: 4,
+  })
+
+  map.value.add(coveragePolyline)
+
+  infoWindow = new InfoWindowCtor({
+    anchor: 'bottom-center',
+    closeWhenClickMap: true,
+    isCustom: true,
+    offset: new PixelCtor(0, -18),
+  })
+
+  if (scenicSpots.value.length > 0) {
+    await addMarkers()
+  }
+}
+
+const panToSpot = (spot: ScenicSpot) => {
+  if (!map.value) {
+    return
+  }
+
+  map.value.setZoomAndCenter(13, spot.position)
+  openSpotInfoWindow(spot)
 }
 
 const clearMap = () => {
-    if (map.value) {
-        map.value.clearOverlays()
-        map.value = null
-    }
+  infoWindow?.close()
+  clearMarkers()
+
+  if (coveragePolyline?.setMap) {
+    coveragePolyline.setMap(null)
+  }
+
+  if (customTileLayer?.setMap) {
+    customTileLayer.setMap(null)
+  }
+
+  coveragePolyline = null
+  customTileLayer = null
+  infoWindow = null
+
+  if (map.value) {
+    map.value.destroy()
+    map.value = null
+  }
 }
 
-onMounted(() => {
-    // Expose routing function to window for InfoWindow HTML buttons
-    (window as any).goToSpotDetail = (spotName: string) => {
-        router.push({ name: 'GuideDetail', params: { id: spotName } });
-    };
+onMounted(async () => {
+  window.goToSpotDetail = (spotName: string) => {
+    router.push({ name: 'GuideDetail', params: { id: spotName } })
+  }
 
-    // Small delay to ensure container is ready and script is loaded
-    setTimeout(async () => {
-        initMap()
-        await fetchSpots()
-    }, 100)
+  await initMap()
+  await fetchSpots()
 })
 
-watch(() => route.query.spot, () => {
+watch(
+  () => route.query.spot,
+  () => {
     checkQueryParam()
-})
+  },
+)
 
 onUnmounted(() => {
-    clearMap()
-    // Cleanup window-level routing function
-    delete (window as any).goToSpotDetail;
+  clearMap()
+  delete window.goToSpotDetail
 })
 </script>
 
 <template>
-    <div class="h-screen w-full relative overflow-hidden bg-gray-50">
-        <!-- Map Container -->
-        <div ref="mapContainer" class="w-full h-full"></div>
+  <div class="guide-page">
+    <div ref="mapContainer" class="guide-map"></div>
 
-        <!-- Premium UI Overlay (Visible only when spots are present) -->
-        <div v-if="scenicSpots.length > 0" class="absolute bottom-10 left-4 right-4 z-[1000] pointer-events-none sm:top-6 sm:left-6 sm:bottom-auto sm:right-auto sm:px-0 sm:w-72 sm:mx-0 max-w-lg mx-auto">
-            <div
-                class="bg-white/70 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/30 pointer-events-auto">
-                <div class="flex items-center justify-between mb-3 px-1">
-                    <div>
-                        <h1 class="text-base font-extrabold text-gray-900 sm:text-lg">导航导览</h1>
-                        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Scenic Guide</p>
-                    </div>
-                </div>
-
-                <div class="flex overflow-x-auto gap-3 pb-1 no-scrollbar sm:flex-col sm:space-y-3 sm:overflow-x-visible sm:pb-0">
-                    <div v-for="spot in scenicSpots" :key="spot.name"
-                        class="flex-shrink-0 w-40 flex items-center gap-2 p-3 bg-white rounded-xl border border-gray-100 cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all duration-200 group sm:w-full sm:justify-between"
-                        @click="panToSpot(spot)">
-                        <div class="flex items-center gap-2 overflow-hidden">
-                            <div
-                                class="w-7 h-7 rounded-full bg-blue-50 flex-shrink-0 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                                <span class="text-blue-600 text-sm">📍</span>
-                            </div>
-                            <span class="text-sm font-medium text-gray-700 truncate">{{ spot.name }}</span>
-                        </div>
-                        <span class="hidden sm:block text-gray-300 group-hover:text-blue-500 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 5l7 7-7 7" />
-                            </svg>
-                        </span>
-                    </div>
-                </div>
-            </div>
+    <div v-if="scenicSpots.length > 0" class="guide-panel">
+      <div class="guide-panel__card">
+        <div class="guide-panel__header">
+          <div>
+            <h1 class="guide-panel__title">景区导览</h1>
+            <p class="guide-panel__subtitle">Scenic Guide</p>
+          </div>
         </div>
+
+        <div class="guide-panel__list">
+          <button v-for="spot in scenicSpots" :key="spot.name" class="guide-panel__item" type="button"
+            @click="panToSpot(spot)">
+            <div class="guide-panel__item-main">
+              <span class="guide-panel__item-icon">●</span>
+              <span class="guide-panel__item-name">{{ spot.name }}</span>
+            </div>
+            <span class="guide-panel__item-arrow">></span>
+          </button>
+        </div>
+      </div>
     </div>
+  </div>
 </template>
 
-
 <style scoped>
-/* Ensure the page takes full height minus TabBar */
-.h-screen {
-    height: calc(100vh - 64px);
-    height: calc(100vh - 64px - env(safe-area-inset-bottom));
+.guide-page {
+  position: relative;
+  height: calc(100vh - 64px);
+  height: calc(100vh - 64px - env(safe-area-inset-bottom));
+  width: 100%;
+  overflow: hidden;
+  background: #eef4fb;
 }
 
-/* Tailwind-like utilities are now handled by Tailwind CSS v4 */
-.text-xl {
-    font-size: 1.25rem;
-    line-height: 1.75rem;
+.guide-map {
+  height: 100%;
+  width: 100%;
 }
 
-.text-xl {
-    font-size: 1.25rem;
-    line-height: 1.75rem;
+.guide-panel {
+  pointer-events: none;
+  position: absolute;
+  bottom: 2.5rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 20;
+  margin: 0 auto;
+  max-width: 32rem;
 }
 
-.font-bold {
-    font-weight: 700;
+.guide-panel__card {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.16);
+  padding: 1rem;
 }
 
-.text-gray-900 {
-    color: #111827;
+.guide-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding: 0 0.25rem;
 }
 
-.mb-1 {
-    margin-bottom: 0.25rem;
+.guide-panel__title {
+  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 800;
 }
 
-.text-sm {
-    font-size: 0.875rem;
-    line-height: 1.25rem;
+.guide-panel__subtitle {
+  color: #64748b;
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.text-gray-500 {
-    color: #6b7280;
+.guide-panel__list {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: none;
 }
 
-.mb-4 {
-    margin-bottom: 1rem;
+.guide-panel__list::-webkit-scrollbar {
+  display: none;
 }
 
-.space-y-3> :not([hidden])~ :not([hidden]) {
-    margin-top: 0.75rem;
+.guide-panel__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 10rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  padding: 0.8rem 0.9rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
 
-.flex {
-    display: flex;
+.guide-panel__item:hover {
+  border-color: #60a5fa;
+  background: #eff6ff;
 }
 
-.items-center {
-    align-items: center;
+.guide-panel__item:active {
+  transform: scale(0.98);
 }
 
-.justify-between {
-    justify-content: space-between;
+.guide-panel__item-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
 }
 
-.p-3 {
-    padding: 0.75rem;
+.guide-panel__item-icon {
+  color: #2563eb;
+  font-size: 0.85rem;
 }
 
-.bg-white {
-    background-color: #ffffff;
+.guide-panel__item-name {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.rounded-xl {
-    border-radius: 0.75rem;
+.guide-panel__item-arrow {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
-.border-gray-100 {
-    border-color: #f3f4f6;
+:deep(.guide-marker) {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-8px);
 }
 
-.cursor-pointer {
-    cursor: pointer;
+:deep(.guide-marker__label) {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.45rem 0.8rem;
+  white-space: nowrap;
 }
 
-.transition-all {
-    transition-property: all;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+:deep(.guide-marker__pin) {
+  background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.28);
+  display: block;
+  height: 16px;
+  margin-top: 0.45rem;
+  width: 16px;
 }
 
-.duration-200 {
-    transition-duration: 200ms;
+:deep(.guide-info-window) {
+  background: #ffffff;
+  border-radius: 1.1rem;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+  width: 220px;
 }
 
-.gap-3 {
-    gap: 0.75rem;
+:deep(.guide-info-window__image) {
+  height: 116px;
+  overflow: hidden;
+  width: 100%;
 }
 
-.w-8 {
-    width: 2rem;
+:deep(.guide-info-window__image img) {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
 }
 
-.h-8 {
-    height: 2rem;
+:deep(.guide-info-window__body) {
+  padding: 0.9rem;
 }
 
-.rounded-full {
-    border-radius: 9999px;
+:deep(.guide-info-window__title) {
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin: 0 0 0.4rem;
 }
 
-.bg-blue-50 {
-    background-color: #eff6ff;
+:deep(.guide-info-window__text) {
+  color: #475569;
+  display: -webkit-box;
+  font-size: 0.78rem;
+  line-clamp: 2;
+  line-height: 1.55;
+  margin: 0 0 0.85rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.justify-center {
-    justify-content: center;
+:deep(.guide-info-window__button) {
+  align-items: center;
+  background: linear-gradient(135deg, #2563eb 0%, #0f766e 100%);
+  border: none;
+  border-radius: 999px;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
 }
 
-.text-blue-600 {
-    color: #2563eb;
-}
-
-.text-lg {
-    font-size: 1.125rem;
-    line-height: 1.75rem;
-}
-
-.font-medium {
-    font-weight: 500;
-}
-
-.text-gray-700 {
-    color: #374151;
-}
-
-.text-gray-300 {
-    color: #d1d5db;
-}
-
-.h-4 {
-    height: 1rem;
-}
-
-.w-4 {
-    width: 1rem;
-}
-
-/* Hide scrollbar but allow scrolling */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-.no-scrollbar {
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
-}
-
-.bottom-10 {
-    bottom: 2.5rem;
-}
-
-.left-4 {
-    left: 1rem;
-}
-
-.right-4 {
-    right: 1rem;
-}
-
-.z-\[1000\] {
-    z-index: 1000;
-}
-
-.max-w-lg {
-    max-width: 32rem;
-}
-
-.mx-auto {
-    margin-left: auto;
-    margin-right: auto;
-}
-
-.px-4 {
-    padding-left: 1rem;
-    padding-right: 1rem;
-}
-
-.right-0 {
-    right: 0;
-}
-
-.p-4 {
-    padding: 1rem;
-}
-
-.text-base {
-    font-size: 1rem;
-    line-height: 1.5rem;
-}
-
-.text-lg {
-    font-size: 1.125rem;
-    line-height: 1.75rem;
-}
-
-.font-extrabold {
-    font-weight: 800;
-}
-
-.text-\[10px\] {
-    font-size: 10px;
-}
-
-.uppercase {
-    text-transform: uppercase;
-}
-
-.tracking-wide {
-    letter-spacing: 0.025em;
-}
-
-.text-xs {
-    font-size: 0.75rem;
-    line-height: 1rem;
-}
-
-.mb-3 {
-    margin-bottom: 0.75rem;
-}
-
-.px-1 {
-    padding-left: 0.25rem;
-    padding-right: 0.25rem;
-}
-
-.gap-2 {
-    gap: 0.5rem;
-}
-
-.pb-1 {
-    padding-bottom: 0.25rem;
-}
-
-.flex-shrink-0 {
-    flex-shrink: 0;
-}
-
-.w-40 {
-    width: 10rem;
-}
-
-.w-7 {
-    width: 1.75rem;
-}
-
-.h-7 {
-    height: 1.75rem;
-}
-
-.overflow-x-auto {
-    overflow-x: auto;
-}
-
-.truncate {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+:deep(.guide-info-window__button-icon) {
+  font-size: 0.7rem;
 }
 
 @media (min-width: 640px) {
-    .sm\:top-6 { top: 1.5rem; }
-    .sm\:left-6 { left: 1.5rem; }
-    .sm\:bottom-auto { bottom: auto; }
-    .sm\:right-auto { right: auto; }
-    .sm\:px-0 { padding-left: 0; padding-right: 0; }
-    .sm\:w-72 { width: 18rem; }
-    .sm\:mx-0 { margin-left: 0; margin-right: 0; }
-    .sm\:text-lg { font-size: 1.125rem; line-height: 1.75rem; }
-    .sm\:flex-col { flex-direction: column; }
-    .sm\:space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.75rem; }
-    .sm\:overflow-x-visible { overflow-x: visible; }
-    .sm\:pb-0 { padding-bottom: 0; }
-    .sm\:w-full { width: 100%; }
-    .sm\:justify-between { justify-content: space-between; }
-    .sm\:block { display: block; }
-}
+  .guide-panel {
+    bottom: auto;
+    left: 1.5rem;
+    margin: 0;
+    max-width: none;
+    right: auto;
+    top: 1.5rem;
+    width: 18rem;
+  }
 
-@media (max-width: 639px) {
-    .hidden { display: none; }
-}
+  .guide-panel__list {
+    display: grid;
+    gap: 0.75rem;
+    overflow: visible;
+    padding-bottom: 0;
+  }
 
-/* Custom styles for the BMap labels to make them look modern */
-:deep(.BMap_Label) {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    transform: translateX(-50%);
-}
-
-:deep(.iw-container) {
-    width: 210px;
-    background: #fff;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding-bottom: 2px;
-}
-
-:deep(.iw-img-box) {
+  .guide-panel__item {
+    min-width: 0;
     width: 100%;
-    height: 110px;
-    overflow: hidden;
-}
-
-:deep(.iw-img-box img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-:deep(.iw-body) {
-    padding: 12px;
-}
-
-:deep(.iw-title) {
-    font-size: 15px;
-    font-weight: 800;
-    color: #333;
-    margin: 0 0 6px 0;
-}
-
-:deep(.iw-text) {
-    font-size: 12px;
-    color: #666;
-    line-height: 1.5;
-    margin: 0 0 12px 0;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-:deep(.iw-btn-wrapper) {
-    display: flex;
-    justify-content: flex-end;
-}
-
-:deep(.iw-btn) {
-    background: linear-gradient(135deg, #6e8efb 0%, #a777e3 100%);
-    color: #fff;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    box-shadow: 0 4px 10px rgba(110, 142, 251, 0.25);
-    transition: transform 0.2s ease;
-}
-
-:deep(.iw-btn:active) {
-    transform: scale(0.95);
-}
-
-:deep(.iw-btn-icon) {
-    font-size: 12px;
-}
-
-/* Ensure the InfoWindow itself doesn't have restrictive borders */
-:deep(.BMap_bubble_title) {
-    display: none !important;
-}
-
-/* Hide the default BMap close button background if needed or style it */
-:deep(.BMap_pop img) {
-    z-index: 1001;
-}
-</style>
-
-<!-- Global CSS for Baidu Maps Overrides - Clean Unified Card Only -->
-<style>
-.BMap_pop {
-    background: transparent !important;
-}
-
-/* Hide ALL default bubble parts (slices and beak) */
-.BMap_pop > div {
-    display: none !important;
-}
-
-/* Show ONLY the content container (verified as 9th child) */
-.BMap_pop > div:nth-child(9) {
-    display: block !important;
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
-}
-
-/* Specifically ensure the arrow/beak identified as 11th child is hidden */
-.BMap_pop > div:nth-child(11),
-.BMap_pop div[style*="width: 34px"][style*="height: 50px"] {
-    display: none !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-}
-
-.BMap_pop > div > div {
-    background: transparent !important;
-    background-image: none !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-.BMap_bubble_content {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    overflow: visible !important;
-}
-
-.BMap_bubble_center {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-}
-
-.BMap_bubble_top,
-.BMap_bubble_bottom {
-    background: transparent !important;
-}
-
-/* Hide shadow and other default UI elements */
-.BMap_shadow,
-.BMap_bubble_title,
-.BMap_bubble_buttons,
-.BMap_pop img[style*="top: 10px"] { /* Attempt to hide default close button */
-    display: none !important;
-}
-
-/* Target the wrapper that usually adds the white background */
-.BMap_bubble_pop {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
+  }
 }
 </style>

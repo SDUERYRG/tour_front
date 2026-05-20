@@ -1,45 +1,109 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
-import { ref } from 'vue'
-import guideImgDetail from '../assets/images/guide_1.png' // Using existing guide image as placeholder
-
+import { ref, onMounted, onUnmounted } from 'vue'
+import guideImgDetail from '../assets/images/guide_1.png'
+import { showToast } from '../utils/toast'
 import { scenicSpots } from '../data/scenicSpots'
 
 const router = useRouter()
 const route = useRoute()
 
-// Find current spot from shared data
-const currentSpot = scenicSpots.find(s => s.name === route.params.id)
-
-// Mock data for the guide
+// Reactive state for the guide detail
 const guideDetail = ref({
-  title: route.params.id || '黄河口一日游全攻略',
+  title: route.params.id as string || '黄河口一日游全攻略',
   author: '度假小助手',
   date: '2026-03-31',
   views: '1.2w',
-  tags: [currentSpot?.tag || '热门', '推荐'],
-  image: currentSpot?.image || guideImgDetail,
+  tags: ['热门', '推荐'],
+  image: guideImgDetail,
   content: [
     {
       type: 'section',
-      title: '景点概览',
-      text: currentSpot?.description || '从游客中心出发，建议乘坐观光巴士前往蓝黄交汇处。沿途可以欣赏到壮观的红滩绿苇，这是大自然最年轻的湿地奇观。'
-    },
-    {
-      type: 'section',
-      title: '精彩亮点',
-      text: '不容错过的“孤岛槐林”，万亩槐林在花开季节香飘十里。此外，“万鸟翔集”是摄影爱好者的天堂，运气好的话可以见到东方白鹳。'
-    },
-    {
-      type: 'section',
-      title: '贴心小提示',
-      text: '由于海边风大，建议携带防风外套。防晒霜和驱蚊喷雾也是必不可少的。最佳游览时间为上午10点至下午4点。'
+      title: '景点简介',
+      text: ''
     }
   ]
 })
 
+const isSpeaking = ref(false)
+let utterance: SpeechSynthesisUtterance | null = null
+
+const toggleSpeech = () => {
+  if (isSpeaking.value) {
+    window.speechSynthesis.cancel()
+    isSpeaking.value = false
+    return
+  }
+
+  const textToRead = guideDetail.value.content[0].text
+  if (!textToRead) return
+
+  utterance = new SpeechSynthesisUtterance(textToRead)
+  utterance.lang = 'zh-CN'
+  utterance.onend = () => {
+    isSpeaking.value = false
+  }
+  utterance.onerror = () => {
+    isSpeaking.value = false
+  }
+
+  window.speechSynthesis.speak(utterance)
+  isSpeaking.value = true
+}
+
+// Find initial data from static records
+const initialSpot = scenicSpots.find(s => s.name === route.params.id)
+if (initialSpot) {
+  guideDetail.value.tags = [initialSpot.tag || '热门', '推荐']
+  guideDetail.value.image = initialSpot.image
+  guideDetail.value.content[0].text = initialSpot.description
+} else {
+  guideDetail.value.content[0].text = '正在加载景点描述...'
+}
+
+const fetchSpotDetail = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch('/api/scenic-spots/range?startId=1&endId=13', {
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json'
+      }
+    })
+    const result = await response.json()
+    
+    if (result.code === 200 && Array.isArray(result.data)) {
+      const spot = result.data.find((item: any) => item.name === route.params.id)
+      if (spot) {
+        guideDetail.value.tags = [spot.tag || '热门', '推荐']
+        guideDetail.value.image = spot.imageUrl || guideDetail.value.image
+        // Show only original description content
+        guideDetail.value.content[0].text = spot.description
+      }
+    }
+  } catch (error) {
+    console.error('Failed to fetch spot detail:', error)
+  }
+}
+
+onMounted(() => {
+  fetchSpotDetail()
+})
+
+onUnmounted(() => {
+  window.speechSynthesis.cancel()
+})
+
 const goBack = () => {
   router.back()
+}
+
+const handleShare = () => {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    showToast('链接已复制到剪贴板', 'success')
+  }).catch(() => {
+    showToast('复制失败，请手动复制', 'error')
+  })
 }
 </script>
 
@@ -61,21 +125,22 @@ const goBack = () => {
     <!-- Content Area -->
     <main class="content-container">
       <h1 class="guide-title">{{ guideDetail.title }}</h1>
-      
+
       <div class="author-info">
         <div class="author-meta">
           <span class="author-name">by {{ guideDetail.author }}</span>
           <span class="pub-date">{{ guideDetail.date }}</span>
         </div>
-        <div class="view-stats">
-          <span class="eye-icon">👁️</span>
-          <span class="view-count">{{ guideDetail.views }}</span>
-        </div>
       </div>
-
       <div class="article-body">
         <div v-for="(section, index) in guideDetail.content" :key="index" class="content-section">
-          <h2 class="section-title">{{ section.title }}</h2>
+          <div class="section-header-row">
+            <h2 class="section-title">{{ section.title }}</h2>
+            <button v-if="section.title === '景点简介'" class="voice-btn" @click="toggleSpeech" :class="{ active: isSpeaking }">
+              <span class="icon">{{ isSpeaking ? '⏹️' : '🔊' }}</span>
+              <span class="text">{{ isSpeaking ? '正在播放' : '语音讲解' }}</span>
+            </button>
+          </div>
           <p class="section-text">{{ section.text }}</p>
         </div>
       </div>
@@ -83,21 +148,9 @@ const goBack = () => {
 
     <!-- Sticky Footer -->
     <footer class="engagement-bar">
-      <div class="action-btn">
-        <span class="icon">🧡</span>
-        <span class="label">赞</span>
-      </div>
-      <div class="action-btn">
-        <span class="icon">⭐</span>
-        <span class="label">收藏</span>
-      </div>
-      <div class="action-btn">
-        <span class="icon">💬</span>
-        <span class="label">评论</span>
-      </div>
-      <button class="share-major-btn">
+      <button class="share-major-btn" @click="handleShare">
         <span class="icon">↗️</span>
-        <span class="text">分享全攻略</span>
+        <span class="text">分享详情</span>
       </button>
     </footer>
   </div>
@@ -211,14 +264,44 @@ const goBack = () => {
   margin-bottom: 28px;
 }
 
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 .section-title {
   font-size: 18px;
   font-weight: 700;
   color: #333;
-  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 0; /* Override previous margin */
+}
+
+.voice-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f4ff;
+  border: 1px solid #6e8efb;
+  color: #6e8efb;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.voice-btn.active {
+  background: #6e8efb;
+  color: #fff;
+}
+
+.voice-btn .icon {
+  font-size: 14px;
 }
 
 .section-title::before {
@@ -233,6 +316,7 @@ const goBack = () => {
   font-size: 15px;
   color: #555;
   text-align: justify;
+  white-space: pre-wrap;
 }
 
 /* Footer Section */
